@@ -1,0 +1,48 @@
+# FastAPI and web framework dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Pydantic for data validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# HTTP client for async requests
+httpx==0.24.1
+httpcore==0.17.3
+
+# Supabase client (compatible versions)
+supabase==2.3.0
+gotrue==2.4.2
+postgrest==0.10.8
+realtime==1.0.3
+storage3==0.6.0
+
+# Google AI and Search
+google-generativeai==0.3.2
+google-search-results==2.4.2
+
+# ElevenLabs TTS
+elevenlabs==0.2.26
+
+# Firebase (fallback storage)
+firebase-admin==6.4.0
+
+# JWT handling
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Background tasks and async
+celery==5.3.4
+redis==5.0.1
+
+# Utilities
+python-dotenv==1.0.0
+Pillow==10.1.0
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
