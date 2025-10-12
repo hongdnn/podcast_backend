@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # === CONFIG ===
-GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_API_KEY")        
+GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY")        
 SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")   
 
 from app.core.config import settings
@@ -25,7 +25,7 @@ class GoogleAIService:
     def __init__(self):
         # Configure Google AI
         genai.configure(api_key=settings.google_api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
         
     async def search_latest_news(self, topic: str, num_results: int = 10) -> List[Dict[str, Any]]:
         """Search for latest news using Google Search"""
@@ -61,93 +61,140 @@ class GoogleAIService:
         except Exception as e:
             logger.error(f"News search error: {str(e)}")
             raise Exception(f"Failed to search news: {str(e)}")
-    
+        
     async def generate_podcast_script(self, news_data: List[Dict[str, Any]], topic: str, duration: int = 5) -> str:
-        """Generate natural podcast script from news data"""
+        """Generate a natural podcast script for one speaker, TTS-ready"""
         try:
             # Prepare news content for the prompt
             news_content = ""
             for i, article in enumerate(news_data, 1):
                 news_content += f"{i}. {article['title']}\n"
                 news_content += f"   {article['snippet']}\n\n"
-            
-            # Create the prompt for natural podcast script generation
+
+            # Single prompt for generation and TTS enhancement
             prompt = f"""
-You are a professional podcast host creating an engaging {duration}-minute podcast episode about {topic}.
+    You are a professional podcast host creating an engaging {duration}-minute episode about {topic}.
 
-Based on the following recent news articles, create a natural, conversational podcast script that sounds like a real podcast host talking to their audience:
+    Based on the following recent news articles, create a natural, conversational podcast script with **one person talking**, as if they are speaking directly to the audience.
 
-NEWS ARTICLES:
-{news_content}
+    NEWS ARTICLES:
+    {news_content}
 
-REQUIREMENTS:
-- Create a {duration}-minute podcast script (approximately {duration * 150} words)
-- Use a conversational, engaging tone like a real podcast host
-- Include natural transitions between topics
-- Add personal commentary and insights
-- Include an engaging introduction and conclusion
-- Make it sound natural when spoken aloud
-- Use phrases like "Hey everyone", "What's interesting is...", "Let me tell you about..."
-- Include natural pauses and emphasis markers like [pause], [emphasis]
+    REQUIREMENTS:
+    - Use a conversational, engaging tone
+    - Include natural transitions and personal commentary
+    - Include an introduction and conclusion
+    - Optimize for text-to-speech:
+    - No music cues, stage directions, or special characters
+    - Natural pauses with commas and periods
+    - Spell out numbers and abbreviations
+    - Pronunciation should be clear and natural
 
-SCRIPT FORMAT:
-[INTRO MUSIC FADES]
-
-Host: [Your natural, engaging podcast script here]
-
-[OUTRO MUSIC FADES IN]
-
-Generate the complete podcast script now:
-"""
+    Generate the complete podcast script now:
+    """
 
             # Generate script using Gemini
             response = await asyncio.to_thread(
                 self.model.generate_content,
                 prompt
             )
-            
+
             if not response.text:
-                raise Exception("Failed to generate script")
-            
-            logger.info(f"Generated podcast script of length: {len(response.text)}")
+                raise Exception("Failed to generate podcast script")
+
+            logger.info(f"Generated podcast script (single speaker, TTS-ready) length: {len(response.text)}")
             return response.text
-            
+
         except Exception as e:
             logger.error(f"Script generation error: {str(e)}")
-            raise Exception(f"Failed to generate script: {str(e)}")
+            raise Exception(f"Failed to generate podcast script: {str(e)}")
+        
+#     async def generate_podcast_script(self, news_data: List[Dict[str, Any]], topic: str, duration: int = 5) -> str:
+#         """Generate natural podcast script from news data"""
+#         try:
+#             # Prepare news content for the prompt
+#             news_content = ""
+#             for i, article in enumerate(news_data, 1):
+#                 news_content += f"{i}. {article['title']}\n"
+#                 news_content += f"   {article['snippet']}\n\n"
+            
+#             # Create the prompt for natural podcast script generation
+#             prompt = f"""
+# You are a professional podcast host creating an engaging {duration}-minute podcast episode about {topic}.
+
+# Based on the following recent news articles, create a natural, conversational podcast script that sounds like a real podcast host talking to their audience:
+
+# NEWS ARTICLES:
+# {news_content}
+
+# REQUIREMENTS:
+# - Create a {duration}-minute podcast script (approximately {duration * 150} words)
+# - Use a conversational, engaging tone like a real podcast host
+# - Include natural transitions between topics
+# - Add personal commentary and insights
+# - Include an engaging introduction and conclusion
+# - Make it sound natural when spoken aloud
+# - Use phrases like "Hey everyone", "What's interesting is...", "Let me tell you about..."
+# - Include natural pauses and emphasis markers like [pause], [emphasis]
+
+# SCRIPT FORMAT:
+# [INTRO MUSIC FADES]
+
+# Host: [Your natural, engaging podcast script here]
+
+# [OUTRO MUSIC FADES IN]
+
+# Generate the complete podcast script now:
+# """
+
+#             # Generate script using Gemini
+#             response = await asyncio.to_thread(
+#                 self.model.generate_content,
+#                 prompt
+#             )
+            
+#             if not response.text:
+#                 raise Exception("Failed to generate script")
+            
+#             logger.info(f"Generated podcast script of length: {len(response.text)}")
+#             return response.text
+            
+#         except Exception as e:
+#             logger.error(f"Script generation error: {str(e)}")
+#             raise Exception(f"Failed to generate script: {str(e)}")
     
-    async def enhance_script_for_audio(self, script: str) -> str:
-        """Enhance script for better text-to-speech conversion"""
-        try:
-            enhancement_prompt = f"""
-Take this podcast script and optimize it for text-to-speech conversion:
+#     async def enhance_script_for_audio(self, script: str) -> str:
+#         """Enhance script for better text-to-speech conversion"""
+#         try:
+#             enhancement_prompt = f"""
+# Take this podcast script and optimize it for text-to-speech conversion:
 
-ORIGINAL SCRIPT:
-{script}
+# ORIGINAL SCRIPT:
+# {script}
 
-REQUIREMENTS:
-- Remove any stage directions or music cues
-- Ensure all text is speakable
-- Add natural pauses with commas and periods
-- Spell out numbers and abbreviations
-- Make sure pronunciation is clear
-- Keep the conversational tone
-- Remove any special characters that might confuse TTS
+# REQUIREMENTS:
+# - Remove any stage directions or music cues
+# - Ensure all text is speakable
+# - Add natural pauses with commas and periods
+# - Spell out numbers and abbreviations
+# - Make sure pronunciation is clear
+# - Keep the conversational tone
+# - Remove any special characters that might confuse TTS
 
-Return only the enhanced script text that's ready for text-to-speech:
-"""
+# Return only the enhanced script text that's ready for text-to-speech:
+# """
 
-            response = await asyncio.to_thread(
-                self.model.generate_content,
-                enhancement_prompt
-            )
+#             response = await asyncio.to_thread(
+#                 self.model.generate_content,
+#                 enhancement_prompt
+#             )
             
-            if not response.text:
-                return script  # Return original if enhancement fails
+#             if not response.text:
+#                 return script  # Return original if enhancement fails
             
-            logger.info("Script enhanced for TTS conversion")
-            return response.text
+#             logger.info("Script enhanced for TTS conversion")
+#             return response.text
             
-        except Exception as e:
-            logger.error(f"Script enhancement error: {str(e)}")
-            return script  # Return original script if enhancement fails
+#         except Exception as e:
+#             logger.error(f"Script enhancement error: {str(e)}")
+#             return script  # Return original script if enhancement fails

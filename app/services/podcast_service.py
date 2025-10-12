@@ -43,133 +43,136 @@ class PodcastService:
         """Generate a complete podcast (runs in background)"""
         try:
             # Initialize task status
-            self.task_status[task_id] = {
-                "status": PodcastStatus.PROCESSING,
-                "progress": 0,
-                "current_step": GenerationStep.FETCHING_NEWS,
-                "error_message": None
-            }
+            # self.task_status[task_id] = {
+            #     "status": PodcastStatus.PROCESSING,
+            #     "progress": 0,
+            #     "current_step": GenerationStep.FETCHING_NEWS,
+            #     "error_message": None
+            # }
             
             # Use topic or user preferences
             search_topic = topic or user_preferences
             
             # Create podcast record in database
-            podcast_data = {
-                "id": str(uuid.uuid4()),
-                "user_id": user_id,
-                "title": f"AI Podcast: {search_topic.title()}",
-                "topic": search_topic,
-                "status": PodcastStatus.PROCESSING.value,
-                "duration_seconds": 0
-            }
+            # podcast_data = {
+            #     "id": str(uuid.uuid4()),
+            #     "user_id": user_id,
+            #     "title": f"AI Podcast: {search_topic.title()}",
+            #     "topic": search_topic,
+            #     "status": PodcastStatus.PROCESSING.value,
+            #     "duration_seconds": 0
+            # }
             
-            result = self.supabase.table("podcasts").insert(podcast_data).execute()
-            podcast_id = result.data[0]["id"]
+            # result = self.supabase.table("podcasts").insert(podcast_data).execute()
+            # podcast_id = result.data[0]["id"]
             
-            # Log generation start
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.FETCHING_NEWS.value, 
-                "started", 
-                f"Starting podcast generation for topic: {search_topic}"
-            )
+            # # Log generation start
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.FETCHING_NEWS.value, 
+            #     "started", 
+            #     f"Starting podcast generation for topic: {search_topic}"
+            # )
             
             # Step 1: Fetch latest news (20% progress)
-            self._update_task_status(task_id, 20, GenerationStep.FETCHING_NEWS)
+            # self._update_task_status(task_id, 20, GenerationStep.FETCHING_NEWS)
             news_data = await self.google_ai_service.search_latest_news(search_topic)
             
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.FETCHING_NEWS.value, 
-                "completed", 
-                f"Found {len(news_data)} news articles"
-            )
+    
+            
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.FETCHING_NEWS.value, 
+            #     "completed", 
+            #     f"Found {len(news_data)} news articles"
+            # )
             
             # Step 2: Generate script (50% progress)
             self._update_task_status(task_id, 50, GenerationStep.GENERATING_SCRIPT)
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.GENERATING_SCRIPT.value, 
-                "started", 
-                "Generating podcast script"
-            )
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.GENERATING_SCRIPT.value, 
+            #     "started", 
+            #     "Generating podcast script"
+            # )
             
             script = await self.google_ai_service.generate_podcast_script(
                 news_data, search_topic, duration
             )
-            
+            print("📝 Generated Script Successfully:\n", script)
             # Enhance script for TTS
-            enhanced_script = await self.google_ai_service.enhance_script_for_audio(script)
+            # enhanced_script = await self.google_ai_service.enhance_script_for_audio(script)
             
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.GENERATING_SCRIPT.value, 
-                "completed", 
-                f"Generated script of {len(enhanced_script)} characters"
-            )
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.GENERATING_SCRIPT.value, 
+            #     "completed", 
+            #     f"Generated script of {len(enhanced_script)} characters"
+            # )
             
-            # Step 3: Generate audio (80% progress)
-            self._update_task_status(task_id, 80, GenerationStep.GENERATING_AUDIO)
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.GENERATING_AUDIO.value, 
-                "started", 
-                "Converting script to audio"
-            )
+            # # Step 3: Generate audio (80% progress)
+            # self._update_task_status(task_id, 80, GenerationStep.GENERATING_AUDIO)
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.GENERATING_AUDIO.value, 
+            #     "started", 
+            #     "Converting script to audio"
+            # )
             
-            audio_data = await self.tts_service.generate_podcast_audio(enhanced_script)
+            # audio_data = await self.tts_service.generate_podcast_audio(enhanced_script)
             
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.GENERATING_AUDIO.value, 
-                "completed", 
-                f"Generated audio of {len(audio_data)} bytes"
-            )
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.GENERATING_AUDIO.value, 
+            #     "completed", 
+            #     f"Generated audio of {len(audio_data)} bytes"
+            # )
             
-            # Step 4: Upload audio (95% progress)
-            self._update_task_status(task_id, 95, GenerationStep.UPLOADING_AUDIO)
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.UPLOADING_AUDIO.value, 
-                "started", 
-                "Uploading audio to storage"
-            )
+            # # Step 4: Upload audio (95% progress)
+            # self._update_task_status(task_id, 95, GenerationStep.UPLOADING_AUDIO)
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.UPLOADING_AUDIO.value, 
+            #     "started", 
+            #     "Uploading audio to storage"
+            # )
             
-            filename = f"podcast_{podcast_id}.mp3"
-            audio_url, storage_provider = await self.storage_service.upload_audio_file(
-                audio_data, filename
-            )
+            # filename = f"podcast_{podcast_id}.mp3"
+            # audio_url, storage_provider = await self.storage_service.upload_audio_file(
+            #     audio_data, filename
+            # )
             
-            await self._log_generation_step(
-                podcast_id, 
-                GenerationStep.UPLOADING_AUDIO.value, 
-                "completed", 
-                f"Audio uploaded to {storage_provider}: {audio_url}"
-            )
+            # await self._log_generation_step(
+            #     podcast_id, 
+            #     GenerationStep.UPLOADING_AUDIO.value, 
+            #     "completed", 
+            #     f"Audio uploaded to {storage_provider}: {audio_url}"
+            # )
             
-            # Update podcast record with results
-            estimated_duration = len(enhanced_script.split()) * 0.5  # Rough estimate
+            # # Update podcast record with results
+            # estimated_duration = len(enhanced_script.split()) * 0.5  # Rough estimate
             
-            update_data = {
-                "script": enhanced_script,
-                "audio_url": audio_url,
-                "status": PodcastStatus.COMPLETED.value,
-                "duration_seconds": int(estimated_duration),
-                "completed_at": datetime.utcnow().isoformat()
-            }
+            # update_data = {
+            #     "script": enhanced_script,
+            #     "audio_url": audio_url,
+            #     "status": PodcastStatus.COMPLETED.value,
+            #     "duration_seconds": int(estimated_duration),
+            #     "completed_at": datetime.utcnow().isoformat()
+            # }
             
-            self.supabase.table("podcasts").update(update_data).eq("id", podcast_id).execute()
+            # self.supabase.table("podcasts").update(update_data).eq("id", podcast_id).execute()
             
-            # Complete task (100% progress)
-            self.task_status[task_id] = {
-                "status": PodcastStatus.COMPLETED,
-                "progress": 100,
-                "current_step": None,
-                "audio_url": audio_url,
-                "error_message": None
-            }
+            # # Complete task (100% progress)
+            # self.task_status[task_id] = {
+            #     "status": PodcastStatus.COMPLETED,
+            #     "progress": 100,
+            #     "current_step": None,
+            #     "audio_url": audio_url,
+            #     "error_message": None
+            # }
             
-            logger.info(f"Podcast generation completed for task: {task_id}")
+            # logger.info(f"Podcast generation completed for task: {task_id}")
+            return script
             
         except Exception as e:
             logger.error(f"Podcast generation failed for task {task_id}: {str(e)}")

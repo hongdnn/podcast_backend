@@ -1,6 +1,7 @@
 """
 Podcast router for podcast generation and management
 """
+from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 auth_service = AuthService()
 podcast_service = PodcastService()
 
-@router.post("/generate", response_model=PodcastGenerateResponse)
+@router.post("/generate", response_model=Dict)
 async def generate_podcast(
     request: PodcastGenerateRequest,
     background_tasks: BackgroundTasks,
@@ -36,20 +37,29 @@ async def generate_podcast(
         task_id = str(uuid.uuid4())
         
         # Start podcast generation in background
-        background_tasks.add_task(
-            podcast_service.generate_podcast,
+        # background_tasks.add_task(
+        #     podcast_service.generate_podcast,
+        #     task_id=task_id,
+        #     user_id=user.id,
+        #     topic=request.topic,
+        #     duration=request.duration,
+        #     user_preferences=user.preferences
+        # )
+        enhanced_script = await podcast_service.generate_podcast(
             task_id=task_id,
             user_id=user.id,
             topic=request.topic,
             duration=request.duration,
             user_preferences=user.preferences
         )
-        
-        return PodcastGenerateResponse(
-            task_id=task_id,
-            status="processing",
-            estimated_time=300  # 5 minutes estimate
-        )
+
+        # Return the enhanced script
+        return {"enhanced_script": enhanced_script}
+        # return PodcastGenerateResponse(
+        #     task_id=task_id,
+        #     status="processing",
+        #     estimated_time=300  # 5 minutes estimate
+        # )
         
     except Exception as e:
         logger.error(f"Generate podcast error: {str(e)}")
