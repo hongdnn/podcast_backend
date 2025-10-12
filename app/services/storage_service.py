@@ -40,29 +40,68 @@ class StorageService:
         except Exception as e:
             logger.warning(f"Firebase initialization failed: {str(e)}")
             self.firebase_initialized = False
-    
-    async def upload_audio_file(self, audio_data: bytes, filename: Optional[str] = None) -> Tuple[str, str]:
+            
+    async def upload_audio_file(self, output_file: str) -> Tuple[str, str]:
         """
-        Upload audio file to storage
-        Returns: (file_url, storage_provider)
+        Upload local audio file to Supabase storage
+        Args:
+            output_file: path to local MP3 file
+        Returns:
+            Tuple[file_url, storage_provider]
         """
-        if not filename:
-            filename = f"podcast_{uuid.uuid4()}.mp3"
-        
-        # Try Supabase storage first
         try:
-            return await self._upload_to_supabase(audio_data, filename)
+            bucket_name = "podcasts"  # Supabase storage bucket
+            filename = output_file.split("/")[-1]
+            file_path = f"{filename}"
+
+            # Read local file bytes
+            with open(output_file, "rb") as f:
+                file_bytes = f.read()
+
+            # Upload to Supabase
+            result = self.supabase.storage.from_(bucket_name).upload(
+                path=file_path,
+                file=file_bytes,
+                file_options={
+                    "content-type": "audio/mpeg",
+                    "cache-control": "3600"
+                }
+            )
+
+            if result:
+                # Get public URL
+                public_url = self.supabase.storage.from_(bucket_name).get_public_url(file_path)
+                logger.info(f"File uploaded to Supabase: {public_url}")
+                return public_url, "supabase"
+            else:
+                raise Exception("Supabase upload failed")
+
         except Exception as e:
-            logger.error(f"Supabase upload failed: {str(e)}")
+            logger.error(f"Supabase upload error: {str(e)}")
+            raise
+    
+    # async def upload_audio_file(self, filename: Optional[str] = None) -> Tuple[str, str]:
+    #     """
+    #     Upload audio file to storage
+    #     Returns: (file_url, storage_provider)
+    #     """
+    #     if not filename:
+    #         filename = f"podcast_{uuid.uuid4()}.mp3"
+        
+    #     # Try Supabase storage first
+    #     try:
+    #         return await self._upload_to_supabase(audio_data, filename)
+    #     except Exception as e:
+    #         logger.error(f"Supabase upload failed: {str(e)}")
             
-            # Fallback to Firebase
-            if self.firebase_initialized:
-                try:
-                    return await self._upload_to_firebase(audio_data, filename)
-                except Exception as e:
-                    logger.error(f"Firebase upload failed: {str(e)}")
+    #         # Fallback to Firebase
+    #         if self.firebase_initialized:
+    #             try:
+    #                 return await self._upload_to_firebase(audio_data, filename)
+    #             except Exception as e:
+    #                 logger.error(f"Firebase upload failed: {str(e)}")
             
-            raise Exception("All storage providers failed")
+    #         raise Exception("All storage providers failed")
     
     async def _upload_to_supabase(self, audio_data: bytes, filename: str) -> Tuple[str, str]:
         """Upload to Supabase storage"""

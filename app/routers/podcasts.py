@@ -45,7 +45,7 @@ async def generate_podcast(
         #     duration=request.duration,
         #     user_preferences=user.preferences
         # )
-        enhanced_script = await podcast_service.generate_podcast(
+        result = await podcast_service.generate_podcast(
             task_id=task_id,
             user_id=user.id,
             topic=request.topic,
@@ -54,7 +54,7 @@ async def generate_podcast(
         )
 
         # Return the enhanced script
-        return {"enhanced_script": enhanced_script}
+        return {"result": result}
         # return PodcastGenerateResponse(
         #     task_id=task_id,
         #     status="processing",

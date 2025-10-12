@@ -51,7 +51,7 @@ class PodcastService:
             # }
             
             # Use topic or user preferences
-            search_topic = topic or user_preferences
+            search_topic = user_preferences
             
             # Create podcast record in database
             # podcast_data = {
@@ -99,6 +99,7 @@ class PodcastService:
             script = await self.google_ai_service.generate_podcast_script(
                 news_data, search_topic, duration
             )
+            # script = 'hello how are you'
             print("📝 Generated Script Successfully:\n", script)
             # Enhance script for TTS
             # enhanced_script = await self.google_ai_service.enhance_script_for_audio(script)
@@ -119,7 +120,7 @@ class PodcastService:
             #     "Converting script to audio"
             # )
             
-            # audio_data = await self.tts_service.generate_podcast_audio(enhanced_script)
+            output_file = await self.tts_service.generate_podcast_audio(script)
             
             # await self._log_generation_step(
             #     podcast_id, 
@@ -137,10 +138,9 @@ class PodcastService:
             #     "Uploading audio to storage"
             # )
             
-            # filename = f"podcast_{podcast_id}.mp3"
-            # audio_url, storage_provider = await self.storage_service.upload_audio_file(
-            #     audio_data, filename
-            # )
+            audio_url, storage_provider = await self.storage_service.upload_audio_file(
+                output_file
+            )
             
             # await self._log_generation_step(
             #     podcast_id, 
@@ -172,7 +172,7 @@ class PodcastService:
             # }
             
             # logger.info(f"Podcast generation completed for task: {task_id}")
-            return script
+            return audio_url
             
         except Exception as e:
             logger.error(f"Podcast generation failed for task {task_id}: {str(e)}")
