@@ -2,11 +2,20 @@
 Google AI service for Gemini LLM and Google Search integration
 """
 import logging
+import os
 from typing import List, Dict, Any
 import google.generativeai as genai
 from serpapi import GoogleSearch
 import asyncio
+import requests
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# === CONFIG ===
+GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_API_KEY")        
+SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")   
 
 from app.core.config import settings
 
@@ -23,35 +32,31 @@ class GoogleAIService:
         try:
             # Use SerpAPI for Google Search (you'll need to get an API key)
             # For now, we'll simulate with a basic search
-            search_query = f"{topic} latest news 2024"
+            search_query = f"{topic} industry today latest news"
             
             # Using httpx for async HTTP requests to simulate news search
             async with httpx.AsyncClient() as client:
-                # This is a placeholder - in production you'd use SerpAPI or Google Custom Search API
-                # For hackathon purposes, we'll return mock data
-                mock_news = [
-                    {
-                        "title": f"Latest developments in {topic}",
-                        "snippet": f"Recent breakthrough in {topic} technology shows promising results...",
-                        "link": "https://example.com/news1",
-                        "date": "2024-01-15"
-                    },
-                    {
-                        "title": f"{topic} industry trends for 2024",
-                        "snippet": f"Experts predict significant growth in {topic} sector this year...",
-                        "link": "https://example.com/news2", 
-                        "date": "2024-01-14"
-                    },
-                    {
-                        "title": f"Innovation in {topic} reaches new heights",
-                        "snippet": f"Companies are investing heavily in {topic} research and development...",
-                        "link": "https://example.com/news3",
-                        "date": "2024-01-13"
-                    }
-                ]
+                """
+                Perform a web search using Google Custom Search API.
+                """
+                url = "https://www.googleapis.com/customsearch/v1"
+                params = {
+                    "key": GOOGLE_SEARCH_API_KEY,
+                    "cx": SEARCH_ENGINE_ID,
+                    "q": search_query,
+                }
+                response = requests.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                print("🔍 Google Search Results:", data)
+                results = []
+                for item in data.get("items", []):
+                    title = item.get("title")
+                    snippet = item.get("snippet")
+                    results.append({"title": title, "snippet": snippet})
                 
-                logger.info(f"Found {len(mock_news)} news articles for topic: {topic}")
-                return mock_news[:num_results]
+                logger.info(f"Found {len(results)} news articles for topic: {topic}")
+                return results
                 
         except Exception as e:
             logger.error(f"News search error: {str(e)}")

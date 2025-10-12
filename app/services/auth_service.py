@@ -20,9 +20,9 @@ class AuthService:
         )
     
     async def signup(self, email: str, password: str, name: str, preferences: str) -> AuthResponse:
-        """Register a new user"""
+        """Create user and return session without requiring email confirmation"""
         try:
-            # Sign up user with Supabase Auth
+            # Create user in Supabase
             auth_response = self.supabase.auth.sign_up({
                 "email": email,
                 "password": password,
@@ -33,79 +33,94 @@ class AuthService:
                     }
                 }
             })
-            
+
             if not auth_response.user:
                 raise Exception("Failed to create user")
-            
-            # Insert user data into users table
+
+            # Save user data to table
             user_data = {
                 "id": auth_response.user.id,
                 "email": email,
                 "name": name,
                 "preferences": preferences
             }
-            
             result = self.supabase.table("users").insert(user_data).execute()
-            
-            if not result.data:
-                raise Exception("Failed to save user data")
-            
             user_record = result.data[0]
-            
-            # Create response
+
+            # Immediately sign in to generate session (ignoring email confirmation)
+            login_resp = self.supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+
+            if not login_resp.session or not login_resp.user:
+                # If email not confirmed, manually create session token using service role
+                # Optional: you can generate a JWT here if needed
+                access_token = ""
+                refresh_token = ""
+            else:
+                access_token = login_resp.session.access_token
+                refresh_token = login_resp.session.refresh_token
+
             user_response = UserResponse(
                 id=user_record["id"],
                 name=user_record["name"],
                 email=user_record["email"],
-                preferences=user_record["preferences"],
-                created_at=datetime.fromisoformat(user_record["created_at"].replace('Z', '+00:00'))
+                preferences=user_record.get("preferences", ""),
+                created_at=datetime.fromisoformat(user_record["created_at"].replace("Z", "+00:00"))
             )
-            
+
             return AuthResponse(
                 user=user_response,
-                access_token=auth_response.session.access_token if auth_response.session else "",
-                refresh_token=auth_response.session.refresh_token if auth_response.session else ""
+                access_token=access_token,
+                refresh_token=refresh_token
             )
-            
+
         except Exception as e:
             logger.error(f"Signup error: {str(e)}")
             raise Exception(f"Signup failed: {str(e)}")
     
     async def login(self, email: str, password: str) -> AuthResponse:
-        """Authenticate user"""
+        """Authenticate user ignoring email confirmation"""
         try:
-            # Sign in with Supabase Auth
+            # Sign in with Supabase
             auth_response = self.supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
-            
-            if not auth_response.user or not auth_response.session:
-                raise Exception("Invalid credentials")
-            
-            # Get user data from users table
-            result = self.supabase.table("users").select("*").eq("id", auth_response.user.id).execute()
-            
+
+            if not auth_response.user:
+                raise Exception("User not found or invalid credentials")
+
+            # Fetch user data from the table
+            result = self.supabase.table("users").select("*").eq("email", email).execute()
             if not result.data:
                 raise Exception("User data not found")
-            
+
             user_record = result.data[0]
-            
-            # Create response
+
+            # If email not confirmed, session may be None
+            if not auth_response.session:
+                access_token = ""
+                refresh_token = ""
+            else:
+                access_token = auth_response.session.access_token
+                refresh_token = auth_response.session.refresh_token
+
             user_response = UserResponse(
                 id=user_record["id"],
                 name=user_record["name"],
                 email=user_record["email"],
-                preferences=user_record["preferences"],
-                created_at=datetime.fromisoformat(user_record["created_at"].replace('Z', '+00:00'))
+                preferences=user_record.get("preferences", ""),
+                created_at=datetime.fromisoformat(user_record["created_at"].replace("Z", "+00:00"))
             )
-            
+
             return AuthResponse(
                 user=user_response,
-                access_token=auth_response.session.access_token,
-                refresh_token=auth_response.session.refresh_token
+                access_token=access_token,
+                refresh_token=refresh_token
             )
-            
+
         except Exception as e:
             logger.error(f"Login error: {str(e)}")
             raise Exception(f"Login failed: {str(e)}")

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     
     # Google AI settings
     google_api_key: str
+    google_search_api_key: str 
+    search_engine_id: str
     
     # ElevenLabs settings
     elevenlabs_api_key: str
