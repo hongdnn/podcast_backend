@@ -9,7 +9,6 @@ from app.models.schemas import (
     UserSignup, UserLogin, AuthResponse, UserResponse, PreferencesUpdate
 )
 from app.services.auth_service import AuthService
-from app.core.config import settings
 
 router = APIRouter()
 security = HTTPBearer()
@@ -26,7 +25,9 @@ async def signup(user_data: UserSignup):
             email=user_data.email,
             password=user_data.password,
             name=user_data.name,
-            preferences=user_data.preferences
+            preferences=user_data.preferences,
+            daily_delivery_time=user_data.daily_delivery_time,
+            timezone=user_data.timezone
         )
         return result
     except Exception as e:

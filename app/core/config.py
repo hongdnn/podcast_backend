@@ -3,7 +3,6 @@ Configuration settings for the AI Podcast Generator
 """
 from pydantic_settings import BaseSettings
 from typing import Optional
-import os
 
 class Settings(BaseSettings):
     """Application settings"""
@@ -16,11 +15,19 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
     supabase_service_role_key: str
+    supabase_postgrest_timeout: int = 30
+    supabase_storage_timeout: int = 60
     
     # Google AI settings
     google_api_key: str
     google_search_api_key: str 
     search_engine_id: str
+
+    # Vertex AI Search settings
+    vertex_project_id: Optional[str] = None
+    vertex_search_location: str = "global"
+    vertex_search_serving_config: str = "default_search"
+    vertex_search_filter: Optional[str] = None
     
     # ElevenLabs settings
     elevenlabs_api_key: str
@@ -35,7 +42,8 @@ class Settings(BaseSettings):
     # JWT settings
     jwt_secret_key: str = "your-secret-key-change-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 30
+    jwt_expire_days: int = 1
+    jwt_refresh_expire_days: int = 7
     
     class Config:
         env_file = ".env"

@@ -1,99 +1,170 @@
 """
-Google AI service for Gemini LLM and Google Search integration
+Google AI service for Gemini LLM and Vertex AI Search integration.
 """
-import logging
-import os
-from typing import List, Dict, Any
-import google.generativeai as genai
-from serpapi import GoogleSearch
 import asyncio
-import requests
+import logging
+import re
+from typing import Any, Dict, List
+
+import google.generativeai as genai
 import httpx
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# === CONFIG ===
-GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY")        
-SEARCH_ENGINE_ID = os.getenv("SEARCH_ENGINE_ID")   
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class GoogleAIService:
     def __init__(self):
-        # Configure Google AI
         genai.configure(api_key=settings.google_api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
-        
+        self.model = genai.GenerativeModel("gemini-2.5-flash")
+
     async def search_latest_news(self, topic: str, num_results: int = 10) -> List[Dict[str, Any]]:
-        """Search for latest news using Google Search"""
+        """Search for latest news using Vertex AI Search searchLite."""
         try:
-            # Use SerpAPI for Google Search (you'll need to get an API key)
-            # For now, we'll simulate with a basic search
             search_query = f"{topic} industry today latest news"
-            
-            # Using httpx for async HTTP requests to simulate news search
+
+            url = (
+                "https://discoveryengine.googleapis.com/v1/"
+                f"projects/{settings.vertex_project_id}/"
+                f"locations/{settings.vertex_search_location}/"
+                "collections/default_collection/"
+                f"engines/{settings.search_engine_id}/"
+                f"servingConfigs/{settings.vertex_search_serving_config}:searchLite"
+            )
+            params = {"key": settings.google_search_api_key}
+            payload = {
+                "query": search_query,
+                "pageSize": num_results
+            }
+            if settings.vertex_search_filter:
+                payload["filter"] = settings.vertex_search_filter
+
             async with httpx.AsyncClient() as client:
-                """
-                Perform a web search using Google Custom Search API.
-                """
-                url = "https://www.googleapis.com/customsearch/v1"
-                params = {
-                    "key": GOOGLE_SEARCH_API_KEY,
-                    "cx": SEARCH_ENGINE_ID,
-                    "q": search_query,
-                }
-                response = requests.get(url, params=params)
+                response = await client.post(url, params=params, json=payload, timeout=30)
                 response.raise_for_status()
                 data = response.json()
-                print("🔍 Google Search Results:", data)
-                results = []
-                for item in data.get("items", []):
-                    title = item.get("title")
-                    snippet = item.get("snippet")
-                    results.append({"title": title, "snippet": snippet})
-                
-                logger.info(f"Found {len(results)} news articles for topic: {topic}")
-                return results
-                
+
+            results = []
+            for item in data.get("results", []):
+                document = item.get("document", {})
+                struct_data = document.get("structData", {}) or {}
+                derived_data = document.get("derivedStructData", {}) or {}
+                article_data = {**struct_data, **derived_data}
+
+                title = article_data.get("title") or document.get("name", "Untitled")
+                snippet = self._extract_vertex_snippet(article_data)
+                link = (
+                    article_data.get("link")
+                    or article_data.get("uri")
+                    or article_data.get("url")
+                )
+
+                if title or snippet:
+                    results.append({
+                        "title": title,
+                        "snippet": snippet,
+                        "url": link
+                    })
+
+            logger.info(f"Found {len(results)} news articles for topic: {topic}")
+            return results
+
         except Exception as e:
             logger.error(f"News search error: {str(e)}")
             raise Exception(f"Failed to search news: {str(e)}")
-        
+
+    def _extract_vertex_snippet(self, article_data: Dict[str, Any]) -> str:
+        snippets = article_data.get("snippets")
+        if isinstance(snippets, list) and snippets:
+            first_snippet = snippets[0]
+            if isinstance(first_snippet, dict):
+                return (
+                    first_snippet.get("snippet")
+                    or first_snippet.get("htmlSnippet")
+                    or ""
+                )
+            if isinstance(first_snippet, str):
+                return first_snippet
+
+        return (
+            article_data.get("snippet")
+            or article_data.get("htmlSnippet")
+            or article_data.get("description")
+            or ""
+        )
+
+    # Previous Google Custom Search implementation, kept for reference:
+    #
+    # async def search_latest_news(self, topic: str, num_results: int = 10) -> List[Dict[str, Any]]:
+    #     """Search for latest news using Google Custom Search."""
+    #     try:
+    #         search_query = f"{topic} industry today latest news"
+    #         url = "https://www.googleapis.com/customsearch/v1"
+    #         params = {
+    #             "key": settings.google_search_api_key,
+    #             "cx": settings.search_engine_id,
+    #             "q": search_query,
+    #         }
+    #         async with httpx.AsyncClient() as client:
+    #             response = await client.get(url, params=params, timeout=30)
+    #             response.raise_for_status()
+    #             data = response.json()
+    #
+    #         results = []
+    #         for item in data.get("items", []):
+    #             results.append({
+    #                 "title": item.get("title"),
+    #                 "snippet": item.get("snippet"),
+    #                 "url": item.get("link")
+    #             })
+    #
+    #         logger.info(f"Found {len(results)} news articles for topic: {topic}")
+    #         return results
+    #
+    #     except Exception as e:
+    #         logger.error(f"News search error: {str(e)}")
+    #         raise Exception(f"Failed to search news: {str(e)}")
+
     async def generate_podcast_script(self, news_data: List[Dict[str, Any]], topic: str, duration: int = 5) -> str:
-        """Generate a natural podcast script for one speaker, TTS-ready"""
+        """Generate a natural podcast script for one speaker, TTS-ready."""
         try:
-            # Prepare news content for the prompt
             news_content = ""
             for i, article in enumerate(news_data, 1):
                 news_content += f"{i}. {article['title']}\n"
-                news_content += f"   {article['snippet']}\n\n"
+                news_content += f"   {article['snippet']}\n"
+                if article.get("url"):
+                    news_content += f"   Source: {article['url']}\n"
+                news_content += "\n"
 
-            # Single prompt for generation and TTS enhancement
             prompt = f"""
-    You are a professional podcast host creating an engaging {duration}-minute episode about {topic}.
+You are the host of Podcastify.
 
-    Based on the following recent news articles, create a natural, conversational podcast script with **one person talking**, as if they are speaking directly to the audience.
+Write only the exact words the host will speak aloud for an engaging {duration}-minute episode about {topic}.
 
-    NEWS ARTICLES:
-    {news_content}
+Rules:
+- The show name is Podcastify.
+- Do not invent another podcast name.
+- Do not include speaker labels.
+- Do not include markdown.
+- Do not include stage directions.
+- Do not include music cues.
+- Do not include text in parentheses or brackets.
+- Do not say "intro music" or "outro music".
+- Do not open with say hi everyone or introduce yourself as the host.
+- Speak directly to one listener in a personal tone.
+- Start with a natural welcome that mentions Podcastify.
+- End with a natural goodbye that mentions Podcastify.
+- Use a conversational, engaging tone.
+- Include natural transitions and personal commentary.
+- Spell out numbers and abbreviations when that will sound better in text-to-speech.
 
-    REQUIREMENTS:
-    - Use a conversational, engaging tone
-    - Include natural transitions and personal commentary
-    - Include an introduction and conclusion
-    - Optimize for text-to-speech:
-    - No music cues, stage directions, or special characters
-    - Natural pauses with commas and periods
-    - Spell out numbers and abbreviations
-    - Pronunciation should be clear and natural
+NEWS ARTICLES:
+{news_content}
 
-    Generate the complete podcast script now:
-    """
+Generate only the spoken script now:
+"""
 
-            # Generate script using Gemini
             response = await asyncio.to_thread(
                 self.model.generate_content,
                 prompt
@@ -102,99 +173,23 @@ class GoogleAIService:
             if not response.text:
                 raise Exception("Failed to generate podcast script")
 
-            logger.info(f"Generated podcast script (single speaker, TTS-ready) length: {len(response.text)}")
-            return response.text
+            script = self.sanitize_script_for_tts(response.text)
+
+            logger.info(f"Generated podcast script (single speaker, TTS-ready) length: {len(script)}")
+            return script
 
         except Exception as e:
             logger.error(f"Script generation error: {str(e)}")
             raise Exception(f"Failed to generate podcast script: {str(e)}")
-        
-#     async def generate_podcast_script(self, news_data: List[Dict[str, Any]], topic: str, duration: int = 5) -> str:
-#         """Generate natural podcast script from news data"""
-#         try:
-#             # Prepare news content for the prompt
-#             news_content = ""
-#             for i, article in enumerate(news_data, 1):
-#                 news_content += f"{i}. {article['title']}\n"
-#                 news_content += f"   {article['snippet']}\n\n"
-            
-#             # Create the prompt for natural podcast script generation
-#             prompt = f"""
-# You are a professional podcast host creating an engaging {duration}-minute podcast episode about {topic}.
 
-# Based on the following recent news articles, create a natural, conversational podcast script that sounds like a real podcast host talking to their audience:
-
-# NEWS ARTICLES:
-# {news_content}
-
-# REQUIREMENTS:
-# - Create a {duration}-minute podcast script (approximately {duration * 150} words)
-# - Use a conversational, engaging tone like a real podcast host
-# - Include natural transitions between topics
-# - Add personal commentary and insights
-# - Include an engaging introduction and conclusion
-# - Make it sound natural when spoken aloud
-# - Use phrases like "Hey everyone", "What's interesting is...", "Let me tell you about..."
-# - Include natural pauses and emphasis markers like [pause], [emphasis]
-
-# SCRIPT FORMAT:
-# [INTRO MUSIC FADES]
-
-# Host: [Your natural, engaging podcast script here]
-
-# [OUTRO MUSIC FADES IN]
-
-# Generate the complete podcast script now:
-# """
-
-#             # Generate script using Gemini
-#             response = await asyncio.to_thread(
-#                 self.model.generate_content,
-#                 prompt
-#             )
-            
-#             if not response.text:
-#                 raise Exception("Failed to generate script")
-            
-#             logger.info(f"Generated podcast script of length: {len(response.text)}")
-#             return response.text
-            
-#         except Exception as e:
-#             logger.error(f"Script generation error: {str(e)}")
-#             raise Exception(f"Failed to generate script: {str(e)}")
-    
-#     async def enhance_script_for_audio(self, script: str) -> str:
-#         """Enhance script for better text-to-speech conversion"""
-#         try:
-#             enhancement_prompt = f"""
-# Take this podcast script and optimize it for text-to-speech conversion:
-
-# ORIGINAL SCRIPT:
-# {script}
-
-# REQUIREMENTS:
-# - Remove any stage directions or music cues
-# - Ensure all text is speakable
-# - Add natural pauses with commas and periods
-# - Spell out numbers and abbreviations
-# - Make sure pronunciation is clear
-# - Keep the conversational tone
-# - Remove any special characters that might confuse TTS
-
-# Return only the enhanced script text that's ready for text-to-speech:
-# """
-
-#             response = await asyncio.to_thread(
-#                 self.model.generate_content,
-#                 enhancement_prompt
-#             )
-            
-#             if not response.text:
-#                 return script  # Return original if enhancement fails
-            
-#             logger.info("Script enhanced for TTS conversion")
-#             return response.text
-            
-#         except Exception as e:
-#             logger.error(f"Script enhancement error: {str(e)}")
-#             return script  # Return original script if enhancement fails
+    def sanitize_script_for_tts(self, script: str) -> str:
+        """Remove non-spoken formatting that should never be sent to TTS."""
+        cleaned = script.strip()
+        cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+        cleaned = re.sub(r"^\s*(host|podcastify host|narrator)\s*:\s*", "", cleaned, flags=re.IGNORECASE | re.MULTILINE)
+        cleaned = re.sub(r"\([^)]*(music|fade|cue|sfx|sound|intro|outro)[^)]*\)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[[^\]]*(music|fade|cue|sfx|sound|intro|outro)[^\]]*\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^\s*[-*_]{3,}\s*$", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()

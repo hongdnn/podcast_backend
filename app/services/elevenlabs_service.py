@@ -2,99 +2,79 @@
 ElevenLabs text-to-speech service
 """
 import logging
-from typing import Optional
+import random
 import uuid
 import httpx
-import io
-from elevenlabs import generate, Voice, VoiceSettings
-import requests
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class ElevenLabsService:
+    VOICE_IDS = {
+        "female": [
+            "EXAVITQu4vr4xnSDxMaL",  # Bella, worked with this API key
+        ],
+        "male": [
+            "ErXwobaYiN019PkySvjV",  # Antoni, worked with this API key
+        ],
+    }
+
     def __init__(self):
         self.api_key = settings.elevenlabs_api_key
         self.base_url = "https://api.elevenlabs.io/v1"
-        
-        # Default voice settings for podcast-style speech
-        self.voice_settings = VoiceSettings(
-            stability=0.75,
-            similarity_boost=0.75,
-            style=0.5,
-            use_speaker_boost=True
-        )
+        self.model_id = "eleven_flash_v2_5"
+        self.voice_ids = {
+            **self.VOICE_IDS,
+            "neutral": self.VOICE_IDS["female"] + self.VOICE_IDS["male"],
+        }
     
-    # async def text_to_speech(self, text: str, voice_id: str = "nPczCjzI2devNBz1zQrb") -> bytes:
-    #     """Convert text to speech using ElevenLabs API"""
-    #     try:
-    #         # Use the elevenlabs library for text-to-speech
-    #         audio = generate(
-    #             text=text,
-    #             voice=Voice(
-    #                 voice_id=voice_id,
-    #                 settings=self.voice_settings
-    #             ),
-    #             api_key=self.api_key
-    #         )
-            
-    #         # Convert generator to bytes
-    #         audio_bytes = b"".join(audio)
-            
-    #         logger.info(f"Generated audio of size: {len(audio_bytes)} bytes")
-    #         return audio_bytes
-            
-    #     except Exception as e:
-    #         logger.error(f"Text-to-speech error: {str(e)}")
-    #         raise Exception(f"Failed to generate audio: {str(e)}")
-        
-    async def text_to_speech(self, text: str, output_file="output.mp3", api_key="sk_a4adba4e860c0e6ba39061405b17a0e10d49cc37efea650b"):
-        """
-        Convert text to speech using ElevenLabs API and save as MP3.
+    async def text_to_speech(self, text: str, output_file: str, voice_id: str) -> str:
+        """Convert text to speech using ElevenLabs API and save as MP3."""
+        if not self.api_key:
+            raise Exception("Missing ELEVENLABS_API_KEY")
 
-        Args:
-            text: The text to convert to speech
-            output_file: The output MP3 file path (default: output.mp3)
-            api_key: Your ElevenLabs API key
-        """
-        print("Test text:", text)
-        print("Test text:", output_file)
-        print("Test text:", api_key)
-        voice_id = "nPczCjzI2devNBz1zQrb"  # Rachel voice
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-
+        url = f"{self.base_url}/text-to-speech/{voice_id}"
         headers = {
             "Accept": "audio/mpeg",
             "Content-Type": "application/json",
-            "xi-api-key": api_key
+            "xi-api-key": self.api_key
         }
-
         data = {
             "text": text,
-            "model_id": "eleven_monolingual_v1",
+            "model_id": self.model_id,
             "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.5
+                "stability": 0.6,
+                "similarity_boost": 0.75,
+                "style": 0.25,
+                "use_speaker_boost": True
             }
         }
+        params = {"output_format": "mp3_44100_128"}
 
         try:
-            print(f"Converting text to speech...")
-            response = requests.post(url, json=data, headers=headers)
-            print('Request sent to ElevenLabs API: ', response)
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    params=params,
+                    json=data,
+                    headers=headers,
+                    timeout=60
+                )
 
-            if response.status_code == 200:
-                with open(output_file, 'wb') as f:
-                    f.write(response.content)
-                print(f"✓ Audio saved successfully to: {output_file}")
-                return output_file
-            else:
-                print(f"Error: {response.status_code}")
-                print(f"Response: {response.text}")
+            if response.status_code != 200:
+                logger.error(f"ElevenLabs TTS failed: {response.status_code} {response.text}")
+                raise Exception(f"ElevenLabs TTS failed with status {response.status_code}: {response.text}")
+
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+
+            logger.info(f"Audio saved successfully to: {output_file}")
+            return output_file
 
         except Exception as e:
-            print(f"An error occurred: {str(e)}")
+            logger.error(f"Text-to-speech error: {str(e)}")
+            raise Exception(f"Failed to generate audio: {str(e)}")
     
     async def get_available_voices(self) -> list:
         """Get list of available voices"""
@@ -114,49 +94,36 @@ class ElevenLabsService:
                     voices_data = response.json()
                     return voices_data.get("voices", [])
                 else:
-                    logger.error(f"Failed to get voices: {response.status_code}")
+                    logger.error(f"Failed to get voices: {response.status_code} {response.text}")
                     return []
                     
         except Exception as e:
             logger.error(f"Get voices error: {str(e)}")
             return []
+
+    async def get_podcast_voice(self, voice_preference: str = "neutral") -> str:
+        """Pick a random English voice based on requested gender preference."""
+        preference = (voice_preference or "neutral").strip().lower()
+        if preference not in self.voice_ids:
+            preference = "neutral"
+
+        voice_id = random.choice(self.voice_ids[preference])
+        logger.info(f"Using {preference} English voice: {voice_id}")
+        return voice_id
     
-    async def get_podcast_voice(self) -> str:
-        """Get a suitable voice ID for podcast content"""
-        # try:
-        #     voices = await self.get_available_voices()
-            
-        #     # Look for voices suitable for podcasting
-        #     podcast_voices = [
-        #         "21m00Tcm4TlvDq8ikWAM",  # Rachel - clear and professional
-        #         "AZnzlk1XvdvUeBnXmlld",  # Domi - warm and engaging
-        #         "EXAVITQu4vr4xnSDxMaL",  # Bella - friendly and clear
-        #     ]
-            
-        #     # Return the first available podcast voice
-        #     for voice_id in podcast_voices:
-        #         for voice in voices:
-        #             if voice.get("voice_id") == voice_id:
-        #                 logger.info(f"Using voice: {voice.get('name', 'Unknown')} ({voice_id})")
-        #                 return voice_id
-            
-        #     # Fallback to default voice
-        logger.info("Using default voice: Rachel")
-        return "nPczCjzI2devNBz1zQrb"
-            
-        # except Exception as e:
-        #     logger.error(f"Get podcast voice error: {str(e)}")
-        #     return "21m00Tcm4TlvDq8ikWAM"  # Default fallback
-    
-    async def generate_podcast_audio(self, script: str) -> bytes:
+    async def generate_podcast_audio(self, script: str, voice_preference: str = "neutral") -> bytes:
         """Generate podcast audio with optimized settings"""
         try:
             # Get suitable voice for podcast
-            voice_id = await self.get_podcast_voice()
+            voice_id = await self.get_podcast_voice(voice_preference)
             filename = f"podcast_{str(uuid.uuid4())}.mp3"
             
             # Generate audio with podcast-optimized settings
-            output_file = await self.text_to_speech(text=script, output_file=filename)
+            output_file = await self.text_to_speech(
+                text=script,
+                output_file=filename,
+                voice_id=voice_id
+            )
             
             logger.info("Podcast audio generated successfully")
             return output_file

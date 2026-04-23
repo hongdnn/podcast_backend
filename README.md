@@ -1,10 +1,10 @@
 # AI Podcast Generator Backend
 
-A FastAPI-based backend service that automatically generates AI-powered podcasts from the latest news using Google AI (Gemini), ElevenLabs TTS, and Supabase for authentication and storage.
+A FastAPI-based backend service that automatically generates AI-powered podcasts from the latest news using Google AI (Gemini), ElevenLabs TTS, and Supabase for database/storage.
 
 ## Features
 
-- **User Authentication**: Signup/login using Supabase Auth with user preferences
+- **User Authentication**: Signup/login using local bcrypt password hashes and app JWTs
 - **AI News Fetching**: Uses Google Search to fetch latest news based on user preferences
 - **Script Generation**: Leverages Google Gemini LLM to create natural podcast scripts
 - **Text-to-Speech**: Converts scripts to high-quality audio using ElevenLabs
@@ -14,7 +14,7 @@ A FastAPI-based backend service that automatically generates AI-powered podcasts
 ## Tech Stack
 
 - **Backend**: FastAPI + Python 3.9+
-- **Authentication**: Supabase Auth
+- **Authentication**: Local users table + JWT
 - **Database**: Supabase PostgreSQL
 - **AI Services**: Google AI (Gemini LLM)
 - **Text-to-Speech**: ElevenLabs API
@@ -37,7 +37,7 @@ podcast_backend/
 │   │   ├── podcasts.py       # Podcast endpoints
 │   │   └── __init__.py
 │   ├── services/
-│   │   ├── auth_service.py    # Supabase authentication
+│   │   ├── auth_service.py    # Local authentication and JWTs
 │   │   ├── google_ai_service.py # Google AI integration
 │   │   ├── elevenlabs_service.py # ElevenLabs TTS
 │   │   ├── storage_service.py  # File storage
@@ -71,14 +71,18 @@ cp .env.example .env
 Required environment variables:
 - `SUPABASE_URL`: Your Supabase project URL
 - `SUPABASE_ANON_KEY`: Supabase anonymous key
-- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key for backend database access
+- `JWT_SECRET_KEY`: Secret used to sign app JWTs
 - `GOOGLE_API_KEY`: Google AI API key
+- `GOOGLE_SEARCH_API_KEY`: Vertex AI Search API key for `searchLite`
+- `SEARCH_ENGINE_ID`: Vertex AI Search app/engine ID
+- `VERTEX_PROJECT_ID`: Google Cloud project ID that owns the Vertex AI Search app
 - `ELEVENLABS_API_KEY`: ElevenLabs API key
 
 ### 3. Database Setup
 
 The database tables are already created via Supabase migrations:
-- `users`: User profiles and preferences
+- `users`: User profiles, preferences, and bcrypt password hashes
 - `podcasts`: Podcast records and metadata
 - `generation_logs`: Generation process logs
 
@@ -99,7 +103,7 @@ The API will be available at `http://localhost:8000`
 ## API Endpoints
 
 ### Authentication
-- `POST /auth/signup` - Register new user
+- `POST /auth/signup` - Register new user and return JWTs
 - `POST /auth/login` - User login
 - `GET /auth/me` - Get current user profile
 - `PUT /auth/preferences` - Update user preferences
@@ -126,8 +130,19 @@ curl -X POST "http://localhost:8000/auth/signup" \
     "preferences": "technology"
   }'
 ```
+The signup response includes `access_token` and `refresh_token`. Passwords are stored in the `users.password` column as bcrypt hashes, never plaintext.
 
-### 2. Generate Podcast
+### 2. User Login
+```bash
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "password123"
+  }'
+```
+
+### 3. Generate Podcast
 ```bash
 curl -X POST "http://localhost:8000/podcasts/generate" \
   -H "Content-Type: application/json" \
@@ -138,7 +153,7 @@ curl -X POST "http://localhost:8000/podcasts/generate" \
   }'
 ```
 
-### 3. Check Generation Status
+### 4. Check Generation Status
 ```bash
 curl -X GET "http://localhost:8000/podcasts/status/TASK_ID" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
@@ -168,8 +183,11 @@ Once running, visit `http://localhost:8000/docs` for interactive API documentati
 ## Required API Keys
 
 1. **Google AI API Key**: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. **ElevenLabs API Key**: Get from [ElevenLabs](https://elevenlabs.io/)
-3. **Supabase Keys**: Available in your Supabase project dashboard
+2. **Vertex AI Search API Key**: Use a key allowed to call Discovery Engine API (`discoveryengine.googleapis.com`) through `searchLite`
+3. **Vertex AI Search App ID**: Put the app/engine ID in `SEARCH_ENGINE_ID`
+4. **Vertex AI Search Project ID**: Put the Google Cloud project ID in `VERTEX_PROJECT_ID`
+5. **ElevenLabs API Key**: Get from [ElevenLabs](https://elevenlabs.io/)
+6. **Supabase Keys**: Available in your Supabase project dashboard
 
 ## Storage Configuration
 

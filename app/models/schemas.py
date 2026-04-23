@@ -1,7 +1,7 @@
 """
 Pydantic models for request/response schemas
 """
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -24,16 +24,34 @@ class UserSignup(BaseModel):
     email: EmailStr
     password: str
     preferences: str
+    daily_delivery_time: Optional[str] = None
+    timezone: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def password_must_fit_bcrypt(cls, password: str) -> str:
+        if len(password.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 bytes or fewer")
+        return password
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_must_fit_bcrypt(cls, password: str) -> str:
+        if len(password.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 bytes or fewer")
+        return password
 
 class UserResponse(BaseModel):
     id: str
     name: str
     email: str
     preferences: str
+    daily_delivery_time: Optional[str] = None
+    timezone: Optional[str] = None
     created_at: datetime
 
 class AuthResponse(BaseModel):
@@ -46,8 +64,9 @@ class PreferencesUpdate(BaseModel):
 
 # Podcast schemas
 class PodcastGenerateRequest(BaseModel):
-    topic: Optional[str] = None
+    topics: Optional[str] = None
     duration: Optional[int] = 5  # minutes
+    voice_preference: Optional[str] = None
 
 class PodcastGenerateResponse(BaseModel):
     task_id: str

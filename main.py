@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     logger.info("Starting AI Podcast Generator API")
+    await podcasts.podcast_service.start_worker()
     yield
+    await podcasts.podcast_service.stop_worker()
     logger.info("Shutting down AI Podcast Generator API")
 
 # Create FastAPI app

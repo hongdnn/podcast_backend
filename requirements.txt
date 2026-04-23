@@ -29,9 +29,9 @@ elevenlabs==0.2.26
 # Firebase (fallback storage)
 firebase-admin==6.4.0
 
-# JWT handling
+# JWT and password handling
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+bcrypt==5.0.0
 
 # Background tasks and async
 celery==5.3.4

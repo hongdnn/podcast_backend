@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 import io
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 import firebase_admin
 from firebase_admin import credentials, storage as firebase_storage
 
@@ -19,7 +20,11 @@ class StorageService:
         # Initialize Supabase client
         self.supabase: Client = create_client(
             settings.supabase_url,
-            settings.supabase_service_role_key
+            settings.supabase_service_role_key,
+            options=ClientOptions(
+                postgrest_client_timeout=settings.supabase_postgrest_timeout,
+                storage_client_timeout=settings.supabase_storage_timeout,
+            ),
         )
         
         # Initialize Firebase (fallback)
@@ -50,6 +55,9 @@ class StorageService:
             Tuple[file_url, storage_provider]
         """
         try:
+            if not output_file:
+                raise Exception("No audio file was generated")
+
             bucket_name = "podcasts"  # Supabase storage bucket
             filename = output_file.split("/")[-1]
             file_path = f"{filename}"
