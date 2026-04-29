@@ -4,9 +4,11 @@ Main podcast service that orchestrates podcast generation.
 
 import asyncio
 import logging
+import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 
 from supabase import Client, create_client
 from supabase.lib.client_options import ClientOptions
@@ -19,6 +21,7 @@ from app.models.schemas import (
     PodcastStatus,
     PodcastStatusResponse,
 )
+from app.services.email_service import EmailService
 from app.services.elevenlabs_service import ElevenLabsService
 from app.services.google_ai_service import GoogleAIService
 from app.services.storage_service import StorageService
@@ -39,10 +42,12 @@ class PodcastService:
         self.google_ai_service = GoogleAIService()
         self.tts_service = ElevenLabsService()
         self.storage_service = StorageService()
+        self.email_service = EmailService()
 
         # In-memory queue/status simulation. Use Redis/Kafka/Postgres LISTEN in production.
         self.job_queue: asyncio.Queue = asyncio.Queue()
         self.worker_task: Optional[asyncio.Task] = None
+        self.scheduler_task: Optional[asyncio.Task] = None
         self.task_status: Dict[str, Dict[str, Any]] = {}
         self.task_events: Dict[str, asyncio.Queue] = {}
 
@@ -55,21 +60,28 @@ class PodcastService:
 
     async def start_worker(self):
         if self.worker_task and not self.worker_task.done():
-            return
+            if self.scheduler_task and not self.scheduler_task.done():
+                return
 
         self.worker_task = asyncio.create_task(self._worker_loop())
+        # self.scheduler_task = asyncio.create_task(self._scheduled_delivery_loop())
         logger.info("Podcast queue worker started")
+        # logger.info("Podcast delivery scheduler started")
 
     async def stop_worker(self):
-        if not self.worker_task:
-            return
+        tasks = [task for task in (self.worker_task, self.scheduler_task) if task]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
-        self.worker_task.cancel()
-        try:
-            await self.worker_task
-        except asyncio.CancelledError:
-            pass
+        self.worker_task = None
+        self.scheduler_task = None
         logger.info("Podcast queue worker stopped")
+        logger.info("Podcast delivery scheduler stopped")
 
     async def _worker_loop(self):
         while True:
@@ -78,6 +90,153 @@ class PodcastService:
                 await self.generate_podcast(**job)
             finally:
                 self.job_queue.task_done()
+
+    async def _scheduled_delivery_loop(self):
+        while True:
+            try:
+                users = await self._load_scheduled_delivery_users()
+                await self._enqueue_due_scheduled_deliveries(users)
+                sleep_seconds = self._seconds_until_next_scheduled_scan(users)
+            except Exception as e:
+                logger.error("Scheduled delivery scan failed: %s", str(e))
+                sleep_seconds = 60
+
+            await asyncio.sleep(sleep_seconds)
+
+    async def _load_scheduled_delivery_users(self) -> list[dict]:
+        result = await self._execute_supabase_query(
+            self.supabase.table("users")
+            .select(
+                "id,email,name,preferences,daily_delivery_time,timezone,last_scheduled_delivery_date"
+            ),
+            "Load scheduled delivery users",
+        )
+        return result.data or []
+
+    async def _enqueue_due_scheduled_deliveries(self, users: list[dict]):
+        now_utc = datetime.now(timezone.utc)
+
+        for user in users:
+            if not self._is_user_due_for_delivery(user, now_utc):
+                continue
+
+            task_id = str(uuid.uuid4())
+            await self.register_task(task_id, user["id"])
+            await self.enqueue_generation(
+                task_id=task_id,
+                user_id=user["id"],
+                topic=user.get("preferences") or "technology",
+                duration=5,
+                voice_preference="neutral",
+                scheduled_delivery=True,
+                recipient_email=user.get("email"),
+                recipient_name=user.get("name") or "there",
+            )
+            await self._mark_user_scheduled_for_today(user, now_utc)
+            logger.info(
+                "Scheduled daily podcast task %s for user %s at %s %s",
+                task_id,
+                user["id"],
+                user.get("daily_delivery_time"),
+                user.get("timezone"),
+            )
+
+    def _is_user_due_for_delivery(self, user: dict, now_utc: datetime) -> bool:
+        delivery_time = user.get("daily_delivery_time")
+        timezone_name = user.get("timezone")
+        if not delivery_time or not timezone_name:
+            return False
+
+        try:
+            local_now = now_utc.astimezone(ZoneInfo(timezone_name))
+            target_hour, target_minute = self._parse_delivery_time(delivery_time)
+        except Exception:
+            logger.warning(
+                "Skipping scheduled delivery for user %s due to invalid schedule %s / %s",
+                user.get("id"),
+                delivery_time,
+                timezone_name,
+            )
+            return False
+
+        last_delivery_date = user.get("last_scheduled_delivery_date")
+        if last_delivery_date:
+            last_delivery_date = str(last_delivery_date)
+            if last_delivery_date == local_now.date().isoformat():
+                return False
+
+        return (
+            local_now.hour == target_hour
+            and local_now.minute == target_minute
+        )
+
+    def _seconds_until_next_scheduled_scan(self, users: list[dict]) -> int:
+        now_utc = datetime.now(timezone.utc)
+        next_run_at: datetime | None = None
+
+        for user in users:
+            candidate = self._next_delivery_datetime_utc(user, now_utc)
+            if candidate is None:
+                continue
+            if next_run_at is None or candidate < next_run_at:
+                next_run_at = candidate
+
+        if next_run_at is None:
+            return 1800
+
+        # Wake a few seconds after the slot begins so hour/minute comparisons are stable.
+        target = next_run_at + timedelta(seconds=5)
+        delay = int((target - now_utc).total_seconds())
+        return max(delay, 30)
+
+    def _next_delivery_datetime_utc(
+        self, user: dict, now_utc: datetime
+    ) -> Optional[datetime]:
+        delivery_time = user.get("daily_delivery_time")
+        timezone_name = user.get("timezone")
+        if not delivery_time or not timezone_name:
+            return None
+
+        try:
+            local_tz = ZoneInfo(timezone_name)
+            local_now = now_utc.astimezone(local_tz)
+            target_hour, target_minute = self._parse_delivery_time(delivery_time)
+        except Exception:
+            return None
+
+        local_target = local_now.replace(
+            hour=target_hour,
+            minute=target_minute,
+            second=0,
+            microsecond=0,
+        )
+        if local_target <= local_now:
+            local_target = local_target + timedelta(days=1)
+
+        return local_target.astimezone(timezone.utc)
+
+    def _parse_delivery_time(self, delivery_time: str) -> tuple[int, int]:
+        target_hour, target_minute = [
+            int(part) for part in str(delivery_time).split(":", 1)
+        ]
+        if target_minute not in (0, 30):
+            raise ValueError("Delivery time must be in 30-minute increments")
+        return target_hour, target_minute
+
+    async def _mark_user_scheduled_for_today(self, user: dict, now_utc: datetime):
+        timezone_name = user.get("timezone") or "UTC"
+        local_date = now_utc.astimezone(ZoneInfo(timezone_name)).date().isoformat()
+        await self._execute_supabase_query(
+            self.supabase.table("users")
+            .update(
+                {
+                    "last_scheduled_delivery_date": local_date,
+                    "updated_at": datetime.utcnow().isoformat(),
+                }
+            )
+            .eq("id", user["id"]),
+            "Mark user scheduled delivery date",
+        )
 
     async def register_task(self, task_id: str, user_id: str):
         self.task_events[task_id] = asyncio.Queue()
@@ -97,6 +256,9 @@ class PodcastService:
         topic: Optional[str] = None,
         duration: int = 5,
         voice_preference: str = "neutral",
+        scheduled_delivery: bool = False,
+        recipient_email: Optional[str] = None,
+        recipient_name: Optional[str] = None,
     ):
         await self.job_queue.put(
             {
@@ -105,6 +267,9 @@ class PodcastService:
                 "topic": topic,
                 "duration": duration,
                 "voice_preference": voice_preference,
+                "scheduled_delivery": scheduled_delivery,
+                "recipient_email": recipient_email,
+                "recipient_name": recipient_name,
             }
         )
         logger.info(f"Podcast generation queued for task: {task_id} with voice preference: {voice_preference}")
@@ -116,8 +281,12 @@ class PodcastService:
         topic: Optional[str] = None,
         duration: int = 5,
         voice_preference: str = "neutral",
+        scheduled_delivery: bool = False,
+        recipient_email: Optional[str] = None,
+        recipient_name: Optional[str] = None,
     ) -> Optional[PodcastResponse]:
         """Run podcast generation in the background."""
+        output_file: Optional[str] = None
         try:
             self.task_status[task_id] = {
                 "status": PodcastStatus.PROCESSING,
@@ -149,6 +318,8 @@ class PodcastService:
             audio_url, storage_provider = await self.storage_service.upload_audio_file(
                 output_file
             )
+            await self._delete_local_file(output_file)
+            output_file = None
 
             estimated_duration = int(len(script.split()) * 0.5)
             podcast_data = {
@@ -183,10 +354,20 @@ class PodcastService:
                 task_id, "completed", podcast.model_dump(mode="json")
             )
 
+            if scheduled_delivery and recipient_email:
+                await self.email_service.send_scheduled_podcast_email(
+                    recipient_email=recipient_email,
+                    recipient_name=recipient_name or "there",
+                    podcast_title=podcast.title,
+                    podcast_topic=podcast.topic or search_topic,
+                    audio_url=podcast.audio_url or "",
+                )
+
             logger.info(f"Podcast generation completed for task: {task_id} using {storage_provider}")
             return podcast
 
         except Exception as e:
+            await self._delete_local_file(output_file)
             logger.error(f"Podcast generation failed for task {task_id}: {str(e)}")
             self.task_status[task_id] = {
                 "status": PodcastStatus.FAILED,
@@ -214,6 +395,22 @@ class PodcastService:
         if task_id in self.task_status:
             self.task_status[task_id].update(
                 {"progress": progress, "current_step": step}
+            )
+
+    async def _delete_local_file(self, file_path: Optional[str]) -> None:
+        if not file_path:
+            return
+
+        try:
+            await asyncio.to_thread(os.remove, file_path)
+            logger.info("Deleted local temporary file: %s", file_path)
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            logger.warning(
+                "Failed to delete local temporary file %s: %s",
+                file_path,
+                str(e),
             )
 
     def _build_podcast_response(self, record: dict) -> PodcastResponse:

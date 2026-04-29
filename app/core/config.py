@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     
     # ElevenLabs settings
     elevenlabs_api_key: str
+
+    # Email settings for scheduled delivery
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    email_from_address: Optional[str] = None
+    email_from_name: str = "Podcastify"
     
     # Firebase settings (fallback storage)
     firebase_credentials_path: Optional[str] = None
